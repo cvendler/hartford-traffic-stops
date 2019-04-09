@@ -1,0 +1,345 @@
+---
+title: "Hartford Traffic Stops"
+author: "Céline Vendler"
+output: html_document
+---
+
+Data courtesy of [The Stanford Open Policing Project](https://openpolicing.stanford.edu/)
+
+```{r setup, include=FALSE}
+
+# Set document settings
+
+knitr::opts_chunk$set(echo = FALSE, 
+                      message = FALSE,
+                      error = FALSE, 
+                      warning = FALSE)
+
+# Load necessary libraries
+
+library(lubridate)
+library(ggthemes)
+library(fs)
+library(sf)
+library(tidyverse)
+
+```
+
+```{r hartford_download, cache=TRUE}
+
+# Read in the rds file containing Hartford's data directly from the link address
+# housed within https://openpolicing.stanford.edu/data/; store as new dataset
+# called "hartford"
+
+hartford <- read_rds(url("https://stacks.stanford.edu/file/druid:tr137st9964/tr137st9964_ct_hartford_2019_02_25.rds"))
+
+```
+
+<br>
+
+```{r frequency_graph, fig.width=10}
+
+# I perform these calculations here so as to avoid using unexplained, "magic
+# numbers" in my code Create object "minutes_in_a_day", the value of which is
+# the number of minutes in a day
+
+minutes_in_a_day <- 60*24
+
+# Create object "five_minutes_in_seconds", the value of which is five minutes in
+# seconds (the number of seconds in five minutes)
+
+five_minutes_in_seconds <- 60*5
+
+# Create object `00:00:00`, the value of which is the number of seconds that has
+# elapsed in the day at midnight (0, as it is the beginning of the day: when the
+# clock starts, so to speak)
+
+`00:00:00` <- 0
+
+# Create object `03:00:00`, the value of which is the number of seconds that has
+# elapsed in the day at 3AM
+
+`03:00:00` <- 60*60*3
+
+# Create object `03:00:00`, the value of which is the number of seconds that has
+# elapsed in the day at 6AM
+
+`06:00:00` <- 60*60*6
+
+# Create object `03:00:00`, the value of which is the number of seconds that has
+# elapsed in the day at 9AM
+
+`09:00:00` <- 60*60*9
+
+# Create object `03:00:00`, the value of which is the number of seconds that has
+# elapsed in the day at noon
+
+`12:00:00` <- 60*60*12
+
+# Create object `03:00:00`, the value of which is the number of seconds that has
+# elapsed in the day at 3PM
+
+`15:00:00` <- 60*60*15
+
+# Create object `03:00:00`, the value of which is the number of seconds that has
+# elapsed in the day at 6PM
+
+`18:00:00` <- 60*60*18
+
+# Create object `03:00:00`, the value of which is the number of seconds that has
+# elapsed in the day at 9PM
+
+`21:00:00` <- 60*60*21
+
+# Create object `03:00:00`, the value of which is the number of seconds that has
+# elapsed in the day at 11:59:59PM, the last second before the next day begins
+
+`23:59:59` <- 60*60*24-1
+
+
+# To create the graphic, begin with the "hartford" dataset
+
+hartford %>% 
+  
+  # Drop all rows within the variable "time" that contain NA values
+  
+  drop_na(time) %>% 
+  
+  # Create new variable called "nice_time": the value of "nice_time" is TRUE
+  # whenever "time"--as an integer--is a multiple of five minutes (using
+  # "five_minutes_in_seconds", created above, to perform this modulo operation);
+  # the value of "nice_time" is FALSE whenever it is not
+  
+  mutate(nice_time = case_when(as.integer(time) %% five_minutes_in_seconds == 0 ~ TRUE, 
+                               TRUE ~ FALSE)) %>% 
+  
+  # Plot this data using ggplot, setting "time" as the x-axis variable and fill
+  # equal to "nice_time" so that bins are filled according to whether or not
+  # they correspond to "nice_times"
+  
+  ggplot(aes(x = time, fill = nice_time)) + 
+  
+  # Make the plot a histogram plot, setting the number of bins to be equal to
+  # "minutes_in_a_day" (created above)
+  
+  geom_histogram(bins = minutes_in_a_day) + 
+  
+  # Create a temporal scale, with breaks at all the times created above (from
+  # midnight--00:00:00--to 11:59:59 at intervals of 3 hours)
+  
+  scale_x_time(breaks = c(`00:00:00`, 
+                          `03:00:00`, 
+                          `06:00:00`, 
+                          `09:00:00`, 
+                          `12:00:00`, 
+                          `15:00:00`, 
+                          `18:00:00`, 
+                          `21:00:00`, 
+                          `23:59:59`)) + 
+  
+  # Give the x- and y-axes new labels; give the plot a title, subtitle, and
+  # caption; and give the legend a new title
+  
+  labs(x = "Time of Day/Night (Hours:Minutes:Seconds)", 
+       y = "Number of Traffic Stops", 
+       title = "Frequency of Traffic Stops per Time of Day/Night in Hartford, CT", 
+       subtitle = "Officers favor times in intervals of 5 minutes (12:30:00, 12:35:00) over other exact times (12:31:00, 12:36:00).",
+       caption = "Source: The Stanford Open Policing Project", 
+       fill = "Type of Time") + 
+  
+  # Create my own discrete scale, reversing the order of the legend so that
+  # "5-Minute Interval" is above "Non-5-Minute" interval to match the appearance
+  # of the plot and labeling and assigning colors to the legend-items
+  
+  scale_fill_manual(guide = guide_legend(reverse = TRUE), 
+                    labels = c("Non-5-Minute Interval", "5-Minute Interval"), 
+                    values = c("lightgoldenrod", "darkorchid4"))
+
+```
+
+<br>
+
+```{r shapes_download}
+
+# Download the shapefile for Hartford directly from the link address housed
+# within https://openpolicing.stanford.edu/data/
+
+download.file(url = "https://stacks.stanford.edu/file/druid:tr137st9964/tr137st9964_ct_hartford_shapefiles_2019_02_25.tgz", 
+              destfile = "hartford_shapefiles.tgz", 
+              quiet = TRUE)
+
+# Untar or extract the contents of "hartford_shapefiles.tgz"
+
+untar("hartford_shapefiles.tgz")
+
+# Read in the shapefile "Hartford_Neighborhoods.shp" housed within the folder
+# "ct_hartford_shapefiles/"; store as new dataset called "hartford_shapes"
+
+hartford_shapes <- read_sf("ct_hartford_shapefiles/Hartford_Neighborhoods.shp")
+
+# Delete the files "hartford_shapefiles.tgz" and the folder
+# "ct_hartford_shapefiles/"
+
+file_delete(c("hartford_shapefiles.tgz", "ct_hartford_shapefiles/"))
+```
+
+```{r hartford_shapes_data_manipulation}
+# Create a new dataset called "black_vs_white_arrest_rates"; begin with the
+# "hartford" dataset
+
+black_vs_white_arrest_rates <- hartford %>% 
+  
+  # Drop all rows within the variables "lng", "lat", and "district" that contain
+  # NA values
+  
+  drop_na(lng, lat, district) %>% 
+  
+  # Filter the data to exclude observations that lie beyond Hartford's borders
+  # (I used Google Maps to determine these numbers); filter the data to include
+  # only observations where race is either "black" or "white"
+  
+  filter(! lng > -72.64, 
+         ! lng < -72.72, 
+         ! lat > 41.81, 
+         ! lat < 41.72, 
+         subject_race %in% c("black", "white")) %>% 
+  
+  # Group the data by the variables "district" and "subject_race" in order to
+  # calculate arrest rates by combination of district and race
+  
+  group_by(district, subject_race) %>% 
+  
+  # First calculate the number of arrests by combination of district and race;
+  # then calculate the number of stops by combination of district and race; and
+  # finally calculate, using the calculated "arrests" and "stops", the arrest
+  # rates by combination of district and race
+  
+  summarize(arrests = sum(arrest_made), 
+            stops = n(), 
+            arrest_rate = arrests / stops) %>% 
+  
+  # Deselect the variables "arrests" and "stops" in order to be able to spread
+  # the data properly (having black and white arrest rates align)
+  
+  select(-c(arrests, stops)) %>% 
+  
+  # Spread the data using the variable "subject_race" as the key and the
+  # variable "arrest_rate" as the value in order to be able to calculate the
+  # arrest rate ratio between black subjects and white subjects below (in order
+  # to be able to do "black / white" below)
+  
+  spread(subject_race, arrest_rate) %>% 
+  
+  # Calculate the ratio between the arrest rate for black subjects and the
+  # arrest rate for white subjects for each district (the black to white arrest
+  # rates ratio)
+  
+  summarize(black_to_white_ratio = black / white) %>% 
+  
+  # Filter the data to exclude the black to white ratio with a value of "Inf",
+  # as it is not feasibly plotted
+  
+  filter(black_to_white_ratio != "Inf") %>% 
+  
+  # Rename the variable "district" to "NAME" in order to be able to left join
+  # this dataset with "hartford_shapes"
+  
+  rename(NAME = district)
+
+
+# Update "hartford_shapes" by left joining "black_vs_white_arrest_rates" to
+# "hartford_shapes"
+
+hartford_shapes <- left_join(hartford_shapes, black_vs_white_arrest_rates)
+
+```
+
+```{r black_and_white_arrest_locations_data_manipulation}
+
+# Create a new dataset called "black_and_white_arrests"; begin with the
+# "hartford" dataset
+
+black_and_white_arrests <- hartford %>% 
+  
+  # Drop all rows within the variables "lng", "lat", and "district" that contain
+  # NA values
+  
+  drop_na(lng, lat, district) %>% 
+  
+  # Filter the data to exclude observations that lie beyond Hartford's borders
+  # (I used Google Maps to determine these numbers); filter the data to include
+  # only observations where race is either "black" or "white"; filter the data
+  # to include only observations where an arrest was made
+  
+  filter(! lng > -72.64, 
+         ! lng < -72.72, 
+         ! lat > 41.81, 
+         ! lat < 41.72, 
+         subject_race %in% c("black", "white"), 
+         arrest_made)
+
+
+# Use st_as_sf to turn the "black_and_white_arrests" dataset into the proper
+# format to be used by geom_sf; store as "black_and_white_arrest_locatiions"
+
+black_and_white_arrest_locatiions <- st_as_sf(black_and_white_arrests, 
+                                              coords = c("lng", "lat"), 
+                                              crs = 4326)
+
+```
+
+```{r ratio_map, fig.height=7, fig.width=7}
+
+# Create a ggplot graphic using the "hartford_shapes" data
+
+ggplot(data = hartford_shapes) + 
+  
+  # Apply geom_sf to the "hartford_shapes" data so that Hartford is properly
+  # displayed in the graphic; fill the neighborhoods according to their
+  # respective black to white arrest rate ratio so as to be able to compare
+  # these ratios across neighborhoods, comparing (the ratios of) the rates at
+  # which black people are arrested at traffic stops and the rates at which
+  # white people are within and across neighborhoods
+  
+  geom_sf(mapping = aes(fill = black_to_white_ratio)) + 
+  
+  # Call geom_sf on the "black_and_white_arrest_locatiions" dataset so that
+  # locations of arrests of both black and white people appear as black dots on
+  # the map (I include these points so as to give the viewer a sense of where
+  # arrests are most or least concentrated); slightly reduce the opacity of
+  # these points; and remove the legend (which includes the alpha information)
+  # from view
+  
+  geom_sf(data = black_and_white_arrest_locatiions, mapping = aes(alpha = 0.7), show.legend = FALSE) + 
+  
+  # Use theme_map to get rid of the x- and y-axis ticks and perform other
+  # actions to get rid of characterisitcs that would unnecessarily complicate
+  # the graphic
+  
+  theme_map() + 
+  
+  # Apply the continuous viridis scales in filling in the neighborhoods for
+  # aesthetic purposes
+  
+  scale_fill_viridis_c() + 
+  
+  # Give the graphic a title, subtitle, and caption; give the legend a new title
+  
+  labs(title = "Black to White Arrest Rate Ratios across Hartford, CT Neighborhoods", 
+       subtitle = "In Downtown and its neighboring areas, where arrests tend to be more concentrated,\nblack people are arrested at higher rates than white people at traffic stops.", 
+       caption = "Source: The Stanford Open Policing Project.\nNB: The black points represent arrests of both black and white people.", 
+       fill = "Black to White Arrest Rate Ratio") + 
+  
+  # Adjust the position of the legend so that it does not block any of the
+  # graphic, adjust the caption's position so that it appears in a more
+  # aesthetically pleasing place, and change the color of the grid in the
+  # background to white to match the actual background and appear invisible, as
+  # Kieran Healy writes that such grids "aren't really needed"
+  
+  theme(legend.position = "right", 
+        plot.caption = element_text(hjust = 0), 
+        panel.grid = element_line(color = "white"))
+
+```
+
+<br>
